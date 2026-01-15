@@ -211,18 +211,46 @@ class WebDavService {
   }) async {
     try {
       final normalizedPath = _normalizePath(remotePath);
+      final fileUrl = getFileUrl(normalizedPath);
 
       // Create parent directory if needed
       final localFile = File(localPath);
       await localFile.parent.create(recursive: true);
 
-      await _client.read2File(
-        normalizedPath,
-        localPath,
-        onProgress: onProgress != null
-            ? (received, total) => onProgress(received, total)
-            : null,
+      // Use Dio directly for better control over timeouts and progress
+      final dio = Dio(BaseOptions(
+        connectTimeout: connectionTimeout,
+        receiveTimeout: downloadTimeout,
+        headers: getAuthHeaders(),
+        responseType: ResponseType.stream,
+      ));
+
+      final response = await dio.get<ResponseBody>(
+        fileUrl,
+        options: Options(
+          responseType: ResponseType.stream,
+        ),
       );
+
+      final contentLength = int.tryParse(
+            response.headers.value(HttpHeaders.contentLengthHeader) ?? '',
+          ) ??
+          -1;
+
+      // Write to file with progress tracking
+      final sink = localFile.openWrite();
+      int received = 0;
+
+      try {
+        await for (final chunk in response.data!.stream) {
+          sink.add(chunk);
+          received += chunk.length;
+          onProgress?.call(received, contentLength);
+        }
+      } finally {
+        await sink.flush();
+        await sink.close();
+      }
     } on DioException catch (e) {
       throw _handleDioException(e, 'Failed to download file: $remotePath');
     } catch (e) {

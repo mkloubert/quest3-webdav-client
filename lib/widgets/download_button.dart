@@ -64,6 +64,11 @@ class DownloadButton extends ConsumerStatefulWidget {
 class _DownloadButtonState extends ConsumerState<DownloadButton> {
   bool _isDownloading = false;
   double _progress = 0.0;
+  int _bytesReceived = 0;
+  int _totalBytes = 0;
+  double _downloadSpeed = 0.0; // bytes per second
+  DateTime? _lastProgressTime;
+  int _lastBytesReceived = 0;
   String? _error;
 
   @override
@@ -110,33 +115,174 @@ class _DownloadButtonState extends ConsumerState<DownloadButton> {
   }
 
   Widget _buildProgressIndicator() {
-    return SizedBox(
-      width: widget.iconSize + 16,
-      height: widget.iconSize + 16,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          SizedBox(
-            width: widget.iconSize,
-            height: widget.iconSize,
-            child: CircularProgressIndicator(
-              value: _progress > 0 ? _progress : null,
-              strokeWidth: 2,
-              color: AppTheme.primaryColor,
-            ),
-          ),
-          if (_progress > 0)
-            Text(
-              '${(_progress * 100).toInt()}',
-              style: TextStyle(
-                fontSize: widget.iconSize * 0.35,
-                fontWeight: FontWeight.w500,
+    return GestureDetector(
+      onTap: _showDownloadDetails,
+      child: SizedBox(
+        width: widget.iconSize + 16,
+        height: widget.iconSize + 16,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            SizedBox(
+              width: widget.iconSize,
+              height: widget.iconSize,
+              child: CircularProgressIndicator(
+                value: _progress > 0 ? _progress : null,
+                strokeWidth: 2,
                 color: AppTheme.primaryColor,
               ),
             ),
-        ],
+            if (_progress > 0)
+              Text(
+                '${(_progress * 100).toInt()}',
+                style: TextStyle(
+                  fontSize: widget.iconSize * 0.35,
+                  fontWeight: FontWeight.w500,
+                  color: AppTheme.primaryColor,
+                ),
+              ),
+          ],
+        ),
       ),
     );
+  }
+
+  void _showDownloadDetails() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppTheme.spacingMd),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Downloading ${widget.file.name}',
+                style: AppTheme.titleMedium,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: AppTheme.spacingMd),
+              // Progress bar
+              LinearProgressIndicator(
+                value: _progress > 0 ? _progress : null,
+                backgroundColor: AppTheme.surfaceColor,
+                color: AppTheme.primaryColor,
+              ),
+              const SizedBox(height: AppTheme.spacingMd),
+              // Details row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Progress percentage
+                  Text(
+                    '${(_progress * 100).toStringAsFixed(1)}%',
+                    style: AppTheme.bodyMedium.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  // Size progress
+                  Text(
+                    '${_formatBytes(_bytesReceived)} / ${_formatBytes(_totalBytes)}',
+                    style: AppTheme.bodySmall.copyWith(
+                      color: AppTheme.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppTheme.spacingSm),
+              // Speed and ETA row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Download speed
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.speed_rounded,
+                        size: 16,
+                        color: AppTheme.textSecondary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${_formatBytes(_downloadSpeed.toInt())}/s',
+                        style: AppTheme.bodySmall.copyWith(
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  // ETA
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.timer_outlined,
+                        size: 16,
+                        color: AppTheme.textSecondary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _formatEta(),
+                        style: AppTheme.bodySmall.copyWith(
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppTheme.spacingLg),
+              // Cancel button
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    // TODO: Implement cancel functionality
+                  },
+                  icon: const Icon(Icons.close_rounded),
+                  label: const Text('Cancel Download'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.errorColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+
+  String _formatEta() {
+    if (_downloadSpeed <= 0 || _totalBytes <= 0) return 'Calculating...';
+
+    final remainingBytes = _totalBytes - _bytesReceived;
+    if (remainingBytes <= 0) return 'Almost done';
+
+    final secondsRemaining = remainingBytes / _downloadSpeed;
+
+    if (secondsRemaining < 60) {
+      return '${secondsRemaining.toInt()}s remaining';
+    } else if (secondsRemaining < 3600) {
+      final minutes = (secondsRemaining / 60).floor();
+      final seconds = (secondsRemaining % 60).toInt();
+      return '${minutes}m ${seconds}s remaining';
+    } else {
+      final hours = (secondsRemaining / 3600).floor();
+      final minutes = ((secondsRemaining % 3600) / 60).floor();
+      return '${hours}h ${minutes}m remaining';
+    }
   }
 
   Widget _buildOfflineIndicator() {
@@ -185,6 +331,11 @@ class _DownloadButtonState extends ConsumerState<DownloadButton> {
     setState(() {
       _isDownloading = true;
       _progress = 0.0;
+      _bytesReceived = 0;
+      _totalBytes = widget.file.size;
+      _downloadSpeed = 0.0;
+      _lastProgressTime = DateTime.now();
+      _lastBytesReceived = 0;
       _error = null;
     });
 
@@ -207,8 +358,21 @@ class _DownloadButtonState extends ConsumerState<DownloadButton> {
         webDavService,
         onProgress: (progress, received, total) {
           if (mounted) {
+            final now = DateTime.now();
+            final timeDiff = now.difference(_lastProgressTime!).inMilliseconds;
+
+            // Calculate speed (update every 500ms to smooth out fluctuations)
+            if (timeDiff >= 500) {
+              final bytesDiff = received - _lastBytesReceived;
+              _downloadSpeed = (bytesDiff / timeDiff) * 1000; // bytes per second
+              _lastProgressTime = now;
+              _lastBytesReceived = received;
+            }
+
             setState(() {
               _progress = progress;
+              _bytesReceived = received;
+              _totalBytes = total > 0 ? total : widget.file.size;
             });
           }
         },

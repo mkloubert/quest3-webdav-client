@@ -107,6 +107,9 @@ class VirtualFolderNotifier extends AsyncNotifier<void> {
       updatedAt: now,
     ));
 
+    // Invalidate any cached WebDAV service for this folder
+    ref.invalidate(webDavServiceProvider(folderId));
+
     return folderId;
   }
 
@@ -157,6 +160,9 @@ class VirtualFolderNotifier extends AsyncNotifier<void> {
       createdAt: Value(existing.createdAt),
       updatedAt: Value(DateTime.now()),
     ));
+
+    // Invalidate cached WebDAV service for this folder
+    ref.invalidate(webDavServiceProvider(id));
   }
 
   /// Deletes a virtual folder and optionally its offline files.

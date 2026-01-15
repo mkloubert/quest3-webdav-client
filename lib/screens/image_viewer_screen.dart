@@ -25,6 +25,7 @@ import 'package:photo_view/photo_view_gallery.dart';
 import '../constants/app_theme.dart';
 import '../models/file_item.dart';
 import '../providers/providers.dart';
+import '../services/download_service.dart';
 import '../services/image_cache_service.dart';
 import '../widgets/image_viewer_overlay.dart';
 
@@ -66,6 +67,11 @@ class _ImageViewerScreenState extends ConsumerState<ImageViewerScreen> {
 
   bool _isDownloading = false;
   double _downloadProgress = 0.0;
+  int _bytesReceived = 0;
+  int _totalBytes = 0;
+  double _downloadSpeed = 0.0;
+  DateTime? _lastProgressTime;
+  int _lastBytesReceived = 0;
 
   // Track vertical drag for swipe-to-close
   double _verticalDragStart = 0;
@@ -131,6 +137,10 @@ class _ImageViewerScreenState extends ConsumerState<ImageViewerScreen> {
                 totalImages: widget.images.length,
                 isDownloading: _isDownloading,
                 downloadProgress: _downloadProgress,
+                bytesReceived: _bytesReceived,
+                totalBytes: _totalBytes,
+                downloadSpeed: _downloadSpeed,
+                downloadEta: _isDownloading ? _formatEta() : null,
               );
             },
           ),
@@ -310,27 +320,62 @@ class _ImageViewerScreenState extends ConsumerState<ImageViewerScreen> {
     setState(() {
       _isDownloading = true;
       _downloadProgress = 0.0;
+      _bytesReceived = 0;
+      _totalBytes = _currentImage.size;
+      _downloadSpeed = 0.0;
+      _lastProgressTime = DateTime.now();
+      _lastBytesReceived = 0;
     });
 
     try {
-      // TODO: Implement actual download with progress using:
-      // - webDavServiceProvider for downloading
-      // - offlineFilesNotifierProvider for tracking
-      //
-      // For now, simulate download progress
-      for (var i = 0; i <= 100; i += 10) {
-        await Future.delayed(const Duration(milliseconds: 100));
-        if (mounted) {
-          setState(() {
-            _downloadProgress = i / 100;
-          });
-        }
-      }
+      // Get WebDAV service
+      final webDavService = await ref.read(
+        webDavServiceProvider(widget.folderId).future,
+      );
+
+      // Get download service
+      final database = ref.read(databaseProvider);
+      final downloadService = DownloadService(database);
+
+      // Start download with progress tracking
+      await downloadService.downloadFile(
+        _currentImage,
+        widget.folderId,
+        webDavService,
+        onProgress: (progress, received, total) {
+          if (mounted) {
+            final now = DateTime.now();
+            final timeDiff = now.difference(_lastProgressTime!).inMilliseconds;
+
+            // Calculate speed (update every 500ms to smooth out fluctuations)
+            if (timeDiff >= 500) {
+              final bytesDiff = received - _lastBytesReceived;
+              _downloadSpeed = (bytesDiff / timeDiff) * 1000;
+              _lastProgressTime = now;
+              _lastBytesReceived = received;
+            }
+
+            setState(() {
+              _downloadProgress = progress;
+              _bytesReceived = received;
+              _totalBytes = total > 0 ? total : _currentImage.size;
+            });
+          }
+        },
+      );
 
       if (mounted) {
         setState(() {
           _isDownloading = false;
         });
+
+        // Invalidate offline status
+        ref.invalidate(offlineFileInfoProvider((
+          folderId: widget.folderId,
+          remotePath: _currentImage.path,
+        )));
+        ref.invalidate(allOfflineFilesProvider);
+        ref.invalidate(totalOfflineSizeProvider);
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -352,6 +397,27 @@ class _ImageViewerScreenState extends ConsumerState<ImageViewerScreen> {
           ),
         );
       }
+    }
+  }
+
+  String _formatEta() {
+    if (_downloadSpeed <= 0 || _totalBytes <= 0) return 'Calculating...';
+
+    final remainingBytes = _totalBytes - _bytesReceived;
+    if (remainingBytes <= 0) return 'Almost done';
+
+    final secondsRemaining = remainingBytes / _downloadSpeed;
+
+    if (secondsRemaining < 60) {
+      return '${secondsRemaining.toInt()}s remaining';
+    } else if (secondsRemaining < 3600) {
+      final minutes = (secondsRemaining / 60).floor();
+      final seconds = (secondsRemaining % 60).toInt();
+      return '${minutes}m ${seconds}s remaining';
+    } else {
+      final hours = (secondsRemaining / 3600).floor();
+      final minutes = ((secondsRemaining % 3600) / 60).floor();
+      return '${hours}h ${minutes}m remaining';
     }
   }
 

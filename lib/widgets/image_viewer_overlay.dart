@@ -59,6 +59,18 @@ class ImageViewerOverlay extends StatefulWidget {
   /// Download progress (0.0 to 1.0).
   final double downloadProgress;
 
+  /// Bytes received so far.
+  final int bytesReceived;
+
+  /// Total bytes to download.
+  final int totalBytes;
+
+  /// Download speed in bytes per second.
+  final double downloadSpeed;
+
+  /// Formatted ETA string.
+  final String? downloadEta;
+
   const ImageViewerOverlay({
     super.key,
     required this.file,
@@ -72,6 +84,10 @@ class ImageViewerOverlay extends StatefulWidget {
     required this.totalImages,
     this.isDownloading = false,
     this.downloadProgress = 0.0,
+    this.bytesReceived = 0,
+    this.totalBytes = 0,
+    this.downloadSpeed = 0.0,
+    this.downloadEta,
   });
 
   @override
@@ -253,41 +269,132 @@ class _ImageViewerOverlayState extends State<ImageViewerOverlay>
         top: false,
         child: Padding(
           padding: const EdgeInsets.all(AppTheme.spacingMd),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Download button
-              if (!widget.file.isOfflineAvailable && widget.onDownload != null)
-                _buildActionButton(
-                  icon: widget.isDownloading
-                      ? null
-                      : Icons.download_rounded,
-                  label: widget.isDownloading
-                      ? '${(widget.downloadProgress * 100).toInt()}%'
-                      : 'Download',
-                  onPressed: widget.isDownloading ? null : widget.onDownload,
-                  isLoading: widget.isDownloading,
-                  progress: widget.downloadProgress,
+          child: widget.isDownloading
+              ? _buildDownloadProgress()
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // Download button
+                    if (!widget.file.isOfflineAvailable &&
+                        widget.onDownload != null)
+                      _buildActionButton(
+                        icon: Icons.download_rounded,
+                        label: 'Download',
+                        onPressed: widget.onDownload,
+                      ),
+                    // Remove offline button
+                    if (widget.file.isOfflineAvailable &&
+                        widget.onRemoveOffline != null)
+                      _buildActionButton(
+                        icon: Icons.delete_outline_rounded,
+                        label: 'Remove Offline',
+                        onPressed: widget.onRemoveOffline,
+                      ),
+                    const SizedBox(width: AppTheme.spacingMd),
+                    // File info
+                    _buildInfoChip(
+                      icon: Icons.photo_size_select_actual_rounded,
+                      label: widget.file.formattedSize,
+                    ),
+                  ],
                 ),
-              // Remove offline button
-              if (widget.file.isOfflineAvailable &&
-                  widget.onRemoveOffline != null)
-                _buildActionButton(
-                  icon: Icons.delete_outline_rounded,
-                  label: 'Remove Offline',
-                  onPressed: widget.onRemoveOffline,
-                ),
-              const SizedBox(width: AppTheme.spacingMd),
-              // File info
-              _buildInfoChip(
-                icon: Icons.photo_size_select_actual_rounded,
-                label: widget.file.formattedSize,
-              ),
-            ],
-          ),
         ),
       ),
     );
+  }
+
+  Widget _buildDownloadProgress() {
+    return Container(
+      padding: const EdgeInsets.all(AppTheme.spacingMd),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Progress bar
+          LinearProgressIndicator(
+            value: widget.downloadProgress > 0 ? widget.downloadProgress : null,
+            backgroundColor: Colors.white.withValues(alpha: 0.2),
+            color: AppTheme.primaryColor,
+          ),
+          const SizedBox(height: AppTheme.spacingSm),
+          // Progress details
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Progress percentage
+              Text(
+                '${(widget.downloadProgress * 100).toInt()}%',
+                style: AppTheme.bodyMedium.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              // Size progress
+              Text(
+                '${_formatBytes(widget.bytesReceived)} / ${_formatBytes(widget.totalBytes)}',
+                style: AppTheme.bodySmall.copyWith(
+                  color: Colors.white70,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppTheme.spacingXs),
+          // Speed and ETA row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Download speed
+              Row(
+                children: [
+                  const Icon(
+                    Icons.speed_rounded,
+                    size: 14,
+                    color: Colors.white70,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${_formatBytes(widget.downloadSpeed.toInt())}/s',
+                    style: AppTheme.bodySmall.copyWith(
+                      color: Colors.white70,
+                    ),
+                  ),
+                ],
+              ),
+              // ETA
+              if (widget.downloadEta != null)
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.timer_outlined,
+                      size: 14,
+                      color: Colors.white70,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      widget.downloadEta!,
+                      style: AppTheme.bodySmall.copyWith(
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
   Widget _buildActionButton({
