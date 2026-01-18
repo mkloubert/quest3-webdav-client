@@ -2,7 +2,7 @@
 
 A WebDAV client application optimized for Meta Quest 3 VR headset. Browse your cloud storage (Nextcloud, ownCloud, or any WebDAV server), stream media, and download files for offline viewing - all in an immersive VR environment.
 
-[▶ Demo Video](assets/demo.mp4")
+[▶ Demo Video](assets/demo.mp4)
 
 <br />
 
